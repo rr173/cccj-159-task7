@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>光罩投片交付中心</title>
+<style>
+:root{--bd:#d8dde6;--bg:#f5f7fa;--pri:#1d4ed8;--err:#b91c1c;--warn:#92400e;--ok:#166534}
+*{box-sizing:border-box}
+body{margin:0;font:14px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif;color:#1f2937;background:var(--bg)}
+header{background:#0f172a;color:#fff;padding:10px 18px;display:flex;align-items:center;gap:16px;flex-wrap:wrap}
+header h1{font-size:16px;margin:0;font-weight:600}
+nav{display:flex;gap:2px;flex-wrap:wrap}
+nav button{background:transparent;border:0;color:#cbd5e1;padding:6px 12px;cursor:pointer;border-radius:6px;font-size:13px}
+nav button.active,nav button:hover{background:#1e293b;color:#fff}
+.mech{margin-left:auto;display:flex;align-items:center;gap:8px;font-size:12px;color:#cbd5e1}
+select,input,textarea,button{font:inherit}
+input,select,textarea{border:1px solid var(--bd);border-radius:6px;padding:6px 8px;background:#fff}
+button.btn{background:var(--pri);color:#fff;border:0;border-radius:6px;padding:7px 14px;cursor:pointer}
+button.btn.sec{background:#e5e7eb;color:#1f2937}
+button.btn.danger{background:#b91c1c}
+button.btn:disabled{opacity:.5;cursor:not-allowed}
+main{padding:18px;max-width:1280px;margin:0 auto}
+.card{background:#fff;border:1px solid var(--bd);border-radius:10px;padding:16px;margin-bottom:16px}
+.card h2{font-size:15px;margin:0 0 12px}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px}
+label{display:block;font-size:12px;color:#475569;margin-bottom:3px}
+table{border-collapse:collapse;width:100%;font-size:13px}
+th,td{border-bottom:1px solid #e5e7eb;padding:7px 8px;text-align:left;vertical-align:top}
+th{background:#f1f5f9;font-weight:600;white-space:nowrap}
+tr:hover td{background:#f8fafc}
+.tag{display:inline-block;border-radius:999px;padding:1px 9px;font-size:11px;font-weight:600}
+.t-VALID,.t-READY,.t-EXPOSED,.t-COMMITTED,.t-ACTIVE,.t-EXECUTED,.t-ACCEPTED_AS_ALIAS{background:#dcfce7;color:var(--ok)}
+.t-QUARANTINED,.t-PENDING,.t-RESERVED,.t-BUILDING,.t-BOUND{background:#fef9c3;color:var(--warn)}
+.t-INVALID,.t-SUPERSEDED,.t-REJECTED,.t-FAILED,.t-CANCELLED,.t-EXPIRED{background:#fee2e2;color:var(--err)}
+.t-SEALED,.t-MASTER,.t-REVISION,.t-DELTA{background:#dbeafe;color:#1e40af}
+.finding{border-left:3px solid var(--bd);padding:8px 10px;margin:6px 0;background:#f8fafc;border-radius:0 6px 6px 0}
+.finding.error{border-color:var(--err);background:#fef2f2}
+.finding.warning{border-color:#ca8a04;background:#fefce8}
+code{background:#f1f5f9;padding:1px 5px;border-radius:4px;font-size:12px}
+.mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+.row{display:flex;gap:8px;align-items:end;flex-wrap:wrap}
+.field{display:flex;flex-direction:column}
+#toast{position:fixed;right:18px;bottom:18px;max-width:520px;z-index:50}
+.toast{padding:10px 14px;border-radius:8px;margin-top:8px;color:#fff;box-shadow:0 6px 24px #0003;font-size:13px;white-space:pre-wrap}
+.toast.ok{background:var(--ok)}.toast.err{background:var(--err)}.toast.info{background:#334155}
+.muted{color:#64748b;font-size:12px}
+a{color:var(--pri);cursor:pointer;text-decoration:none}
+pre.json{background:#0f172a;color:#e2e8f0;padding:10px;border-radius:8px;overflow:auto;font-size:12px;max-height:380px}
+.pillline{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px}
+</style>
+</head>
+<body>
+<header>
+  <h1>光罩投片交付中心</h1>
+  <nav id="nav"></nav>
+  <div class="mech">
+    <span>操作自然人</span>
+    <select id="actor" style="color:#111"></select>
+  </div>
+</header>
+<main id="view"></main>
+<div id="toast"></div>
+<script src="/app.js"></script>
+</body>
+</html>
