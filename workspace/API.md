@@ -285,3 +285,76 @@ ECO FROZEN 全绿 → POST /api/constraints 收紧时钟
 迟到 Runner 回传旧 run_id → 409 STALE_SUPERSEDED（rejected_result 留痕）
 工程师 freeze(refreeze, epoch=2) → 矩阵重跑 → 双签 → 才能发布
 ```
+
+---
+
+# 光罩投片交付中心 API（独立服务，默认端口 8081）
+
+页面：`GET /`（资料与交付）、`GET /schedule`（窗口/lot 编排）、`GET /fab`（只读交付包）。
+全部 JSON，错误信封同上。构件内容用 `content`（UTF-8 文本）、`data_hex` 或 `data_base64`
+之一提交；`declared_sha256` 留空表示按内容实算。种子用户：`u_op`(OPERATOR)、
+`u_mei`(制造工程师)、`u_lo`(版图负责人)、`u_disp1/u_disp2`(调度员)、`u_both`(两签角色兼任，
+用于演示同一自然人禁令)。
+
+## 原因码
+
+- 资料：`DIGEST_MISMATCH`(422，摘要篡改/损坏，实体不入库)、`PARSE_ERROR`、
+  `SLOT_OCCUPIED`、`MISSING_COMPONENT`、`MISSING_LAYER`、`RECIPE_LAYER_NOT_MAPPED`、
+  `UNMAPPED_LAYOUT_LAYER`、`LAYER_NOT_IN_RECIPE`(WARN)、`CORNER_ARTIFACT_MISSING`、
+  `CORNER_NOT_IN_RECIPE`(WARN)、`LAYER_SLOT_MISMATCH`、`BLOB_MISSING`、
+  `QUARANTINE_PENDING`、`VERIFICATION_FAILED`(422)
+- 幂等：`OP_REQUIRED`(400)、`OP_FINGERPRINT`(409，同编号不同请求体)、`OP_EXPIRED`(410)
+- 排程：`WINDOW_OVERLAP`(409，机器时间排他，detail 含 winner_window/winner_op)、
+  `WINDOW_ORDER_VIOLATION`(409，先后次序/依赖倒置)、`WINDOW_ALREADY_BOOKED`、
+  `LOT_SET_MISMATCH`、`LOT_ALREADY_BOUND`、`LOT_EXPOSURE_STARTED`、
+  `NODE_SUPERSEDED`、`NODE_SEALED`、`SLOT_NOT_IN_NODE`
+- 谱系：`DEPENDENCY_INVERSION`(422)、`LINEAGE_CYCLE`(422)、`SLOT_EXISTS`
+- 替换/返工：`APPROVER_CONFLICT`(409，批准者同一自然人)、`FORBIDDEN`(403)、
+  `ALREADY_APPROVED`、`REPLACEMENT_NO_CHANGE`、`EXPOSURE_STARTED`(409)、
+  `EXPOSURE_NOT_STARTED`(409)
+- 导出：`RELEASE_NOT_FINALIZED`、`EXPORT_NOT_READY`、`EXPORT_NOT_FOUND`
+
+## 端点
+
+| 方法 | 路径 | Body / 说明 |
+|---|---|---|
+| POST | `/api/mask/releases` | `{name,by,declared_digests?}` → 201 |
+| GET | `/api/mask/releases` · `.../{id}` | 列表（含构件/隔离/mask set）/ 详情 |
+| POST | `/api/mask/releases/{id}/artifacts` | `{kind,name,content/data_hex/data_base64,declared_sha256?,layer_no?,op_id?}`；上传即验摘要 |
+| POST | `/api/mask/releases/{id}/verify` | 运行 UPLOAD/FINALIZE 核验，返回 verdict+findings（定位 component/slot/artifact_id）|
+| POST | `/api/mask/releases/{id}/finalize` | `{by,op_id}` → 稳定 `delivery_no`；重复资料 `deduped:true` |
+| GET | `/api/mask/releases/{id}/verifications` | 历次核验结论与逐条问题 |
+| GET | `/api/mask/artifacts/{id}/raw` | 下载构件原始字节 |
+| GET | `/api/mask/quarantine?all=0` · POST `/api/mask/quarantine/{id}/resolve` | `{resolution:REJECT_INCOMING/ACCEPT_NEW,by,note?}` |
+| POST | `/api/mask/sets` | `{release_id,name,by,op_id}` 生成主版（含全部当前构件）|
+| GET | `/api/mask/sets` · `.../{id}` | mask set 列表/详情（节点、槽位、谱系边、replaces）|
+| POST | `/api/mask/sets/{id}/nodes/derive` | `{parent_node_id,slot,label,by,op_id}+构件payload` 登记派生层节点 |
+| GET | `/api/mask/nodes/{id}` | 节点详情（slots/parents/children/replaces/status）|
+| POST | `/api/mask/lots` · GET `/api/mask/lots` · `.../{id}` | wafer lot |
+| POST | `/api/mask/lots/{id}/bind` | `{mask_set_id,by,op_id}`；已曝光 lot 仅可借 READY 返工计划绑 delta set |
+| POST | `/api/mask/windows` | `{lot_id,machine_id,node_id,slot,start,end,by,op_id}`；**op_id 必填**，半开区间排他，校验先后次序 |
+| POST | `/api/mask/windows/{id}/expose` · `.../cancel` | 首次曝光封存当前 mask set 全部节点；已曝光窗口不可取消 |
+| GET | `/api/mask/windows?machine=&lot=` · `/api/mask/machines` | 窗口时间线 / 曝光机 |
+| GET | `/api/mask/arbitrations?resource=` | WIN/LOSE 裁决台账（唯一赢家追溯）|
+| POST | `/api/mask/sets/{id}/replacements` | `{release_id,node_id,slot,by,reason,op_id}+新构件payload` 申请替换 |
+| POST | `/api/mask/replacements/{id}/approve` | `{role:ME/LO,by}`；两不同自然人齐备后自动产生 REVISION 节点并取消下游 PLANNED 窗口 |
+| GET | `/api/mask/replacements` | 替换申请与批准状态 |
+| POST | `/api/mask/reworks` | `{lot_id,reason,by,op_id,changes:[{slot,name,content...}]}`；仅已曝光 lot，产出 delta set + READY 返工计划 |
+| GET | `/api/mask/reworks` | 返工计划 |
+| POST | `/api/mask/exports` | `{node_id,by,op_id}` → 202 作业 QUEUED，守护线程/恢复续完 |
+| GET | `/api/mask/exports` · `.../{id}` · `.../{id}/zip` | 作业列表 / 状态 / 下载只读 ZIP |
+| POST | `/api/mask/admin/recover` | 续完 QUEUED/PACKAGING 打包并恢复 INTERRUPTED 操作 |
+| GET | `/api/mask/audit?entity=&action=&op_id=&limit=` | 操作日志（含 DENIED 留痕）|
+| GET | `/api/mask/users` | 种子用户与角色 |
+
+## 交付包布局
+
+```
+<delivery_no>__<node_id>.zip
+  MANIFEST.json   # schema/delivery_no/mask set/节点/artifacts[]（逐构件 sha256,size）+ manifest_sha256 自摘要
+  artifacts/<slot>__<name>
+  README.txt      # 晶圆厂离线复核说明
+```
+
+离线复核：逐个重算 `artifacts/*` SHA-256 与 MANIFEST 比对，再对 MANIFEST 中除
+`manifest_sha256` 外的规范 JSON（键排序、无空白）重算 SHA-256 自校验。

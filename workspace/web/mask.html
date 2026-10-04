@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>光罩投片交付中心 · 资料与交付</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+:root { --bg:#0f1420; --panel:#182030; --line:#2a3550; --fg:#e6ebf5; --mut:#8b97ad;
+  --ok:#2fbf71; --bad:#e5484d; --warn:#e5a33b; --accent:#4c8dff; }
+* { box-sizing: border-box; }
+body { margin:0; font:14px/1.6 -apple-system,"Segoe UI",Roboto,"PingFang SC","Microsoft YaHei",sans-serif;
+  background:var(--bg); color:var(--fg); }
+header { padding:14px 22px; background:#131a28; border-bottom:1px solid var(--line);
+  display:flex; align-items:center; gap:18px; flex-wrap:wrap; }
+header h1 { font-size:17px; margin:0; }
+nav a { color:var(--mut); margin-right:16px; text-decoration:none; }
+nav a.on,nav a:hover { color:var(--fg); }
+.wrap { padding:20px 22px; display:grid; grid-template-columns: 380px 1fr; gap:18px; }
+.panel { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:16px; }
+.panel h2 { font-size:14px; margin:0 0 12px; color:#b9c6e0; letter-spacing:.5px; }
+label { display:block; font-size:12px; color:var(--mut); margin:8px 0 3px; }
+input,select,textarea { width:100%; background:#0e1524; color:var(--fg);
+  border:1px solid var(--line); border-radius:6px; padding:7px 9px; font-size:13px; }
+textarea { min-height:70px; font-family:ui-monospace,Menlo,Consolas,monospace; }
+button { background:var(--accent); color:#fff; border:0; border-radius:6px; padding:7px 14px;
+  font-size:13px; cursor:pointer; margin-top:10px; }
+button.ghost { background:#263149; }
+button.danger { background:#5a2630; }
+.row { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+.tag { display:inline-block; padding:1px 8px; border-radius:20px; font-size:11px; }
+.tag.OK,.tag.PASS,.tag.ACTIVE,.tag.DONE,.tag.WIN,.tag.EXPOSED { background:rgba(47,191,113,.18); color:var(--ok); }
+.tag.FAIL,.tag.ERROR,.tag.DENIED,.tag.LOSE,.tag.CANCELLED,.tag.FAILED { background:rgba(229,72,77,.18); color:var(--bad); }
+.tag.WARN,.tag.PENDING,.tag.QUEUED,.tag.PACKAGING,.tag.PLANNED { background:rgba(229,163,59,.18); color:var(--warn); }
+.tag.SEALED,.tag.SUPERSEDED,.tag.FINALIZED { background:#2c3550; color:#aab6cf; }
+table { width:100%; border-collapse:collapse; font-size:12.5px; }
+th,td { text-align:left; padding:6px 8px; border-bottom:1px solid var(--line); vertical-align:top; }
+th { color:var(--mut); font-weight:500; }
+.mono { font-family:ui-monospace,Menlo,Consolas,monospace; font-size:11.5px; }
+.muted { color:var(--mut); }
+.item { padding:9px 11px; border:1px solid var(--line); border-radius:8px; margin-bottom:8px; cursor:pointer; }
+.item:hover { border-color:var(--accent); }
+.item.sel { border-color:var(--accent); background:#1b2740; }
+#toast { position:fixed; right:18px; bottom:18px; max-width:480px; z-index:9; }
+.toast { padding:10px 14px; border-radius:8px; margin-top:8px; font-size:13px;
+  background:#20304d; border:1px solid var(--line); white-space:pre-wrap; }
+.toast.err { border-color:var(--bad); }
+.toast.ok { border-color:var(--ok); }
+code.rej { color:var(--bad); }
+.graph { font-family:ui-monospace,monospace; font-size:12px; white-space:pre; color:#9fd0a8; }
+.slot { color:#8fc1ff; }
+</style>
+</head>
+<body data-home>
+<header>
+  <h1>光罩投片交付中心</h1>
+  <nav>
+    <a href="/" class="on">资料与交付</a>
+    <a href="/schedule">窗口 / lot 编排</a>
+    <a href="/fab">晶圆厂交付包</a>
+  </nav>
+  <span class="muted" style="font-size:12px">操作人</span>
+  <select id="user" style="width:180px"></select>
+</header>
+<div class="wrap">
+  <div>
+    <div class="panel">
+      <h2>① 新建芯片发行</h2>
+      <label>发行名</label>
+      <input id="rname" value="chip-A">
+      <button onclick="createRelease()">创建发行</button>
+    </div>
+    <div class="panel" style="margin-top:16px">
+      <h2>发行列表</h2>
+      <div id="releases"></div>
+    </div>
+    <div class="panel" style="margin-top:16px" id="uploadPanel" hidden>
+      <h2>② 上传资料构件</h2>
+      <label>构件类型</label>
+      <select id="kind">
+        <option value="layermap">层映射 layermap</option>
+        <option value="recipe">晶圆厂 recipe</option>
+        <option value="die">die 尺寸</option>
+        <option value="scribe">scribe line</option>
+        <option value="corner">工艺角 corner</option>
+        <option value="layout">GDS/OASIS 版图</option>
+      </select>
+      <label>文件名</label><input id="fname" placeholder="L01.gds / layer.map …">
+      <label>版图层号（仅 layout）</label><input id="flayer" type="number" placeholder="1">
+      <label>内容（文本；GDS/OASIS 用 @LAYER n 声明层号）</label><textarea id="fcontent"></textarea>
+      <label>声明 SHA-256（留空 = 按内容实算；可故意改错模拟篡改）</label>
+      <input id="fdigest" class="mono" placeholder="auto">
+      <label>操作编号（幂等，可留空）</label><input id="fop" class="mono">
+      <div class="row"><button onclick="upload()">上传并校验摘要</button>
+        <button class="ghost" onclick="fillDemo()">填入一套演示资料</button></div>
+    </div>
+  </div>
+
+  <div>
+    <div class="panel" id="detailPanel" hidden>
+      <h2>③ 构件关系与核验 <span id="dtitle" class="muted"></span></h2>
+      <div class="row" style="margin-bottom:10px">
+        <button onclick="verify()">运行核验</button>
+        <button class="ghost" onclick="finalizeRel()">规范化 → 稳定交付编号</button>
+        <button class="ghost" onclick="makeSet()">生成主版 mask set</button>
+        <span id="delivery"></span>
+      </div>
+      <div id="verdict"></div>
+      <h2 style="margin-top:14px">构件槽位关系</h2>
+      <div id="graph" class="graph"></div>
+      <table id="artTable"><thead><tr>
+        <th>槽位</th><th>类型</th><th>文件</th><th>版本</th><th>SHA-256</th><th></th>
+      </tr></thead><tbody></tbody></table>
+      <h2 style="margin-top:14px">核验结论历史</h2>
+      <div id="vrfs"></div>
+    </div>
+    <div class="panel" style="margin-top:16px">
+      <h2>④ 同名异物隔离区</h2>
+      <div id="quarantine"></div>
+    </div>
+  </div>
+</div>
+<div id="toast"></div>
+<script src="/mask-static/mask.js"></script>
+</body>
+</html>

@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>光罩中心 · 晶圆厂只读交付包</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+:root { --bg:#0f1420; --panel:#182030; --line:#2a3550; --fg:#e6ebf5; --mut:#8b97ad;
+  --ok:#2fbf71; --bad:#e5484d; --warn:#e5a33b; --accent:#4c8dff; }
+* { box-sizing:border-box; }
+body { margin:0; font:14px/1.6 -apple-system,"Segoe UI",Roboto,"PingFang SC","Microsoft YaHei",sans-serif;
+  background:var(--bg); color:var(--fg); }
+header { padding:14px 22px; background:#131a28; border-bottom:1px solid var(--line);
+  display:flex; align-items:center; gap:18px; flex-wrap:wrap; }
+header h1 { font-size:17px; margin:0; }
+nav a { color:var(--mut); margin-right:16px; text-decoration:none; }
+nav a.on { color:var(--fg); }
+.wrap { padding:20px 22px; display:grid; grid-template-columns: 400px 1fr; gap:18px; }
+.panel { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:16px; margin-bottom:16px; }
+.panel h2 { font-size:14px; margin:0 0 12px; color:#b9c6e0; }
+label { display:block; font-size:12px; color:var(--mut); margin:8px 0 3px; }
+input,select { width:100%; background:#0e1524; color:var(--fg);
+  border:1px solid var(--line); border-radius:6px; padding:7px 9px; font-size:13px; }
+button { background:var(--accent); color:#fff; border:0; border-radius:6px; padding:7px 12px;
+  font-size:12.5px; cursor:pointer; margin:6px 6px 0 0; }
+button.ghost { background:#263149; }
+.tag { display:inline-block; padding:1px 8px; border-radius:20px; font-size:11px; }
+.tag.OK,.tag.PASS,.tag.ACTIVE,.tag.DONE,.tag.WIN,.tag.EXPOSED { background:rgba(47,191,113,.18); color:var(--ok); }
+.tag.FAIL,.tag.ERROR,.tag.DENIED,.tag.LOSE,.tag.CANCELLED,.tag.FAILED { background:rgba(229,72,77,.18); color:var(--bad); }
+.tag.WARN,.tag.PENDING,.tag.QUEUED,.tag.PACKAGING { background:rgba(229,163,59,.18); color:var(--warn); }
+.tag.SEALED,.tag.SUPERSEDED,.tag.DELTA { background:#2c3550; color:#aab6cf; }
+table { width:100%; border-collapse:collapse; font-size:12.5px; }
+th,td { text-align:left; padding:6px 8px; border-bottom:1px solid var(--line); vertical-align:top; }
+th { color:var(--mut); font-weight:500; }
+.mono { font-family:ui-monospace,Menlo,Consolas,monospace; font-size:11.5px; }
+.muted { color:var(--mut); }
+#toast { position:fixed; right:18px; bottom:18px; max-width:520px; z-index:9; }
+.toast { padding:10px 14px; border-radius:8px; margin-top:8px; font-size:13px;
+  background:#20304d; border:1px solid var(--line); white-space:pre-wrap; }
+.toast.err { border-color:var(--bad); } .toast.ok { border-color:var(--ok); }
+pre { background:#0c1220; border:1px solid var(--line); border-radius:8px; padding:10px;
+  font-size:11.5px; overflow:auto; max-height:420px; }
+</style>
+</head>
+<body data-fab>
+<header>
+  <h1>晶圆厂只读交付包</h1>
+  <nav><a href="/">资料与交付</a><a href="/schedule">窗口 / lot 编排</a>
+    <a href="/fab" class="on">晶圆厂交付包</a></nav>
+  <span class="muted" style="font-size:12px">操作人</span><select id="user" style="width:180px"></select>
+</header>
+<div class="wrap">
+  <div>
+    <div class="panel">
+      <h2>导出交付包</h2>
+      <label>mask set</label><select id="set" onchange="loadNodes()"></select>
+      <label>谱系节点（主版/修正版/派生层/delta）</label><select id="node"></select>
+      <label>操作编号（导出也可用原编号安全重试）</label>
+      <input id="op" class="mono" value="op-export-1">
+      <button onclick="doExport()">排队导出</button>
+      <button class="ghost" onclick="recover()">恢复未完成打包</button>
+      <p class="muted" style="font-size:12px">打包前重算每个构件落盘 SHA-256；
+        摘要被篡改或核验未 PASS 一律拒绝。成品目录与 ZIP 降权只读，
+        含 MANIFEST.json（逐构件摘要 + 自摘要）、artifacts/*、README.txt。</p>
+    </div>
+    <div class="panel">
+      <h2>作业</h2>
+      <table><thead><tr><th>作业</th><th>节点</th><th>状态</th><th></th></tr></thead>
+      <tbody id="jobs"></tbody></table>
+    </div>
+  </div>
+  <div>
+    <div class="panel">
+      <h2>MANIFEST（只读包内容清单）</h2>
+      <pre id="manifest" class="mono">选择一个 DONE 作业查看清单</pre>
+    </div>
+    <div class="panel">
+      <h2>最近操作日志</h2>
+      <table><thead><tr><th>时间</th><th>动作</th><th>对象</th><th>结果</th><th>原因</th><th>操作人</th></tr></thead>
+      <tbody id="audit"></tbody></table>
+    </div>
+  </div>
+</div>
+<div id="toast"></div>
+<script src="/mask-static/mask.js"></script>
+<script src="/mask-static/mask_fab.js"></script>
+</body>
+</html>
