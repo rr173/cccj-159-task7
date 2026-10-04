@@ -1,0 +1,355 @@
+"""HTTP API：基于标准库 http.server 的 REST 路由层。
+
+启动: python3 -m app.api --db data/eco.db --port 8080
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import re
+import threading
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+from urllib.parse import urlparse
+
+from .service import ECOError, ECOService
+from .store import Store
+from .impact import ImpactService
+from .leases import LeaseError, LeaseService
+from .quarantine import QuarantineService
+
+WEB_DIR = Path(__file__).resolve().parent.parent / "web"
+
+_MIME = {".html": "text/html; charset=utf-8", ".js": "application/javascript; charset=utf-8",
+         ".css": "text/css; charset=utf-8", ".json": "application/json"}
+
+
+def _make_handler(svc: ECOService, lease_svc: LeaseService | None = None,
+                  impact_svc: ImpactService | None = None,
+                  quarantine_svc: QuarantineService | None = None):
+    lease_svc = lease_svc or LeaseService(svc.s, svc)
+    impact_svc = impact_svc or ImpactService(svc.s)
+    quarantine_svc = quarantine_svc or QuarantineService(svc.s)
+    class Handler(BaseHTTPRequestHandler):
+        server_version = "ChipECO/1.0"
+
+        def log_message(self, fmt, *args):
+            pass
+
+        # ---- 收发辅助 ----
+        def _send(self, code, payload, ctype="application/json"):
+            body = payload if isinstance(payload, bytes) else json.dumps(
+                payload, ensure_ascii=False, indent=2).encode()
+            self.send_response(code)
+            self.send_header("Content-Type", ctype if ctype.startswith("application/zip")
+                             else ctype)
+            self.send_header("Content-Length", str(len(body)))
+            if ctype.startswith("application/zip"):
+                self.send_header("Content-Disposition",
+                                 'attachment; filename="baseline-diff.zip"')
+            self.end_headers()
+            self.wfile.write(body)
+
+        def _body(self):
+            n = int(self.headers.get("Content-Length") or 0)
+            raw = self.rfile.read(n) if n else b"{}"
+            try:
+                return json.loads(raw or b"{}")
+            except json.JSONDecodeError:
+                raise ECOError("BAD_JSON", "请求体不是合法 JSON", 400)
+
+        def _err(self, e: ECOError):
+            self._send(e.http_status, {"error": e.code, "message": e.message,
+                                       "detail": e.extra})
+
+        def _q(self, name, default=None, cast=str):
+            from urllib.parse import parse_qs
+            qs = parse_qs(urlparse(self.path).query)
+            return cast(qs[name][0]) if name in qs else default
+
+        @staticmethod
+        def _gen(b):
+            try:
+                return int(b["gen"])
+            except (KeyError, TypeError, ValueError):
+                raise ECOError("BAD_REQUEST", "gen 必须是整数（租约代次）", 400)
+
+        # ---- 静态资源 ----
+        def _static(self, rel):
+            p = (WEB_DIR / rel).resolve()
+            if not str(p).startswith(str(WEB_DIR.resolve())) or not p.is_file():
+                self._send(404, {"error": "NOT_FOUND", "message": str(rel)})
+                return
+            ctype = _MIME.get(p.suffix, "application/octet-stream")
+            self._send(200, p.read_bytes(), ctype)
+
+        # ---- 路由 ----
+        def do_GET(self):
+            path = urlparse(self.path).path.rstrip("/") or "/"
+            try:
+                if path == "/":
+                    return self._static("index.html")
+                if path == "/ops":
+                    return self._static("ops.html")
+                if path == "/impact":
+                    return self._static("impact.html")
+                if path == "/quarantine":
+                    return self._static("quarantine.html")
+                if path.startswith("/static/"):
+                    return self._static(path[len("/static/"):])
+                # 更具体的字面路径先于参数化模式匹配
+                m = re.fullmatch(r"/api/baselines/diff\.zip", path)
+                if m:
+                    f, t = self._q("from"), self._q("to")
+                    if not f or not t:
+                        raise ECOError("BAD_REQUEST", "需要 from/to 查询参数", 400)
+                    return self._send(200, svc.diff_zip(f, t), "application/zip")
+                m = re.fullmatch(r"/api/baselines/diff", path)
+                if m:
+                    f, t = self._q("from"), self._q("to")
+                    if not f or not t:
+                        raise ECOError("BAD_REQUEST", "需要 from/to 查询参数", 400)
+                    return self._send(200, svc.diff_package(f, t))
+                m = re.fullmatch(r"/api/baselines/([^/]+)", path)
+                if m:
+                    return self._send(200, svc.baseline_detail(m.group(1)))
+                if path == "/api/baselines":
+                    return self._send(200, {"baselines": svc.list_baselines()})
+                m = re.fullmatch(r"/api/ecos/([^/]+)", path)
+                if m:
+                    return self._send(200, svc.eco_detail(m.group(1)))
+                if path == "/api/ecos":
+                    return self._send(200, {"ecos": svc.list_ecos()})
+                m = re.fullmatch(r"/api/ecos/([^/]+)/checks/([^/]+)/inputs", path)
+                if m:
+                    return self._send(200, svc.check_inputs(m.group(1), m.group(2)))
+                if path == "/api/workbench":
+                    return self._send(200, svc.workbench())
+                if path == "/api/catalog":
+                    return self._send(200, svc.check_catalog())
+                if path == "/api/constraints":
+                    return self._send(200, svc.current_constraints())
+                # ---- 版本化电路拓扑 / 影响闭包 ----
+                if path == "/api/impact/topology":
+                    return self._send(200, impact_svc.current_topology())
+                if path == "/api/impact/topologies":
+                    return self._send(200, {"topologies": impact_svc.list_topologies()})
+                if path == "/api/impact/audit":
+                    return self._send(200, {"events": impact_svc.list_audit(
+                        scope=self._q("scope"), snapshot_id=self._q("snapshot_id"),
+                        limit=self._q("limit", 100, int))})
+                if path == "/api/quarantine/board":
+                    return self._send(200, quarantine_svc.board())
+                if path == "/api/quarantine/incidents":
+                    return self._send(200, {"incidents": quarantine_svc.list_incidents()})
+                if path == "/api/quarantine/audit":
+                    return self._send(200, {"events": quarantine_svc.audit(
+                        incident_id=self._q("incident_id"), event=self._q("event"),
+                        limit=self._q("limit", 200, int))})
+                qm = re.fullmatch(r"/api/quarantine/incidents/([^/]+)", path)
+                if qm:
+                    return self._send(200, quarantine_svc.incident(qm.group(1)))
+                m = re.fullmatch(r"/api/impact/snapshots/([^/]+)", path)
+                if m:
+                    return self._send(200, impact_svc.get_snapshot(m.group(1)))
+                m = re.fullmatch(r"/api/ecos/([^/]+)/impact", path)
+                if m:
+                    d = svc.eco_detail(m.group(1))
+                    if not d.get("impact"):
+                        raise ECOError("IMPACT_NOT_FOUND", "该 ECO 尚无影响闭包", 404)
+                    return self._send(200, d["impact"])
+                if path == "/api/rejected-results":
+                    return self._send(200, {"rejected": svc.rejected_results()})
+                if path == "/api/admin/delegations":
+                    return self._send(200, {"delegations": svc.list_delegations()})
+                m = re.fullmatch(r"/api/admin/delegations/(\d+)", path)
+                if m:
+                    return self._send(200, svc.get_delegation(int(m.group(1))))
+                if path == "/api/current-signers":
+                    return self._send(200, svc.current_signers())
+                # ---- 验证执行租约协调 ----
+                if path == "/api/leases/board":
+                    return self._send(200, lease_svc.lease_board())
+                if path == "/api/leases/audit":
+                    return self._send(200, lease_svc.audit_events(
+                        run_id=self._q("run_id"), event=self._q("event"),
+                        reason=self._q("reason"), limit=self._q("limit", 200, int)))
+                m = re.fullmatch(r"/api/leases/runs/(.+)", path)
+                if m:
+                    return self._send(200, lease_svc.lease(m.group(1)))
+                self._send(404, {"error": "NOT_FOUND", "message": path})
+            except (ECOError, LeaseError) as e:
+                self._err(e)
+
+        def do_POST(self):
+            path = urlparse(self.path).path.rstrip("/")
+            try:
+                b = self._body()
+                if path == "/api/admin/reset":
+                    svc.s.reset()
+                    return self._send(200, {"ok": True, "seed": True})
+                if path == "/api/ecos":
+                    d = svc.create_eco(b["title"], b.get("owner", b.get("by", "?")),
+                                       b["affected_modules"], b.get("edits"),
+                                       b.get("root_instances"), b.get("change_summary"),
+                                       b.get("compute_impact", True))
+                    return self._send(201, d)
+                m = re.fullmatch(r"/api/ecos/([^/]+)/edits", path)
+                if m:
+                    return self._send(200, svc.update_edits(
+                        m.group(1), b["edits"], b.get("by", "?")))
+                m = re.fullmatch(r"/api/ecos/([^/]+)/freeze", path)
+                if m:
+                    return self._send(200, svc.freeze_eco(m.group(1), b.get("by", "?")))
+                m = re.fullmatch(r"/api/ecos/([^/]+)/abort", path)
+                if m:
+                    return self._send(200, svc.abort_eco(m.group(1), b.get("by", "?")))
+                m = re.fullmatch(r"/api/ecos/([^/]+)/checks/([^/]+)/results", path)
+                if m:
+                    d = svc.submit_result(
+                        b["run_id"], b["fingerprint"], b["verdict"],
+                        b.get("result"), b.get("runner_id", "runner-0"))
+                    return self._send(200, d)
+                m = re.fullmatch(r"/api/ecos/([^/]+)/checks/([^/]+)/rerun", path)
+                if m:
+                    return self._send(200, svc.rerun_check(
+                        m.group(1), m.group(2), b.get("by", "?")))
+                m = re.fullmatch(r"/api/ecos/([^/]+)/signoff", path)
+                if m:
+                    return self._send(200, svc.signoff(
+                        m.group(1), b["role"], b.get("user", b.get("by", "?")),
+                        b.get("delegation_id")))
+                # 临时代理签核：管理员配置 / 撤销
+                if path == "/api/admin/delegations":
+                    d = svc.create_delegation(
+                        b["role"], b["delegate_user"], b["valid_from"], b["valid_until"],
+                        b.get("granted_by", b.get("by", "admin")),
+                        b.get("principal_user"), b.get("note", ""))
+                    return self._send(201 if not d.get("deduped") else 200, d)
+                m = re.fullmatch(r"/api/admin/delegations/(\d+)/revoke", path)
+                if m:
+                    return self._send(200, svc.revoke_delegation(
+                        int(m.group(1)), b.get("revoked_by", b.get("by", "admin"))))
+                # 更具体的路径必须排在同前缀通用模式之前（fullmatch 已锚定，
+                # 但 merge-into 有两段，需先于通用段；resume 亦先于裸 release 防御）
+                m = re.fullmatch(r"/api/ecos/([^/]+)/release/resume", path)
+                if m:
+                    return self._send(200, svc.resume_release(m.group(1), b.get("by", "?")))
+                m = re.fullmatch(r"/api/ecos/([^/]+)/merge-into/([^/]+)", path)
+                if m:
+                    return self._send(200, svc.adjudicate_merge(
+                        m.group(1), m.group(2), b.get("by", "?"),
+                        b.get("module_winners")))
+                m = re.fullmatch(r"/api/ecos/([^/]+)/release", path)
+                if m:
+                    d = svc.release_start(m.group(1), b.get("by", "?"),
+                                          b.get("failpoint"))
+                    return self._send(200, d)
+                if path == "/api/constraints":
+                    return self._send(200, svc.update_base_constraints(
+                        b["delta"], b.get("by", "?"), b.get("note", "")))
+                # ---- 版本化电路拓扑 / 影响闭包 ----
+                if path == "/api/impact/topology":
+                    return self._send(201, impact_svc.publish_topology(
+                        b.get("graph", b), b.get("by", "?"), b.get("note", "")))
+                if path == "/api/impact/compute":
+                    return self._send(200, impact_svc.compute(
+                        b.get("scope", "ad-hoc"), b.get("roots"),
+                        b.get("change_summary"), b.get("by", "?")))
+                m = re.fullmatch(r"/api/impact/snapshots/([^/]+)/exclusions", path)
+                if m:
+                    return self._send(201, impact_svc.exclude(
+                        m.group(1), b.get("exclusions", []), b.get("by", "?")))
+                # ---- 已发行版本事故隔离 ----
+                if path == "/api/quarantine/incidents":
+                    d = quarantine_svc.register(
+                        b.get("by", b.get("registered_by", "?")),
+                        b.get("baseline_id", b.get("released_baseline_id")),
+                        b.get("batch_no", b.get("batch")), b.get("reason"),
+                        b.get("evidence"), incident_id=b.get("incident_id"),
+                        idempotency_key=b.get("idempotency_key"),
+                        failpoint=b.get("failpoint"),
+                        role=b.get("role", "QUALITY_LEAD"))
+                    return self._send(201 if d.get("state_changed") else 200, d)
+                if path == "/api/quarantine/recover-all":
+                    d = quarantine_svc.recover()
+                    return self._send(200, d)
+                qm = re.fullmatch(r"/api/quarantine/incidents/([^/]+)/recover", path)
+                if qm:
+                    return self._send(200, quarantine_svc.finish_isolation(
+                        qm.group(1), b.get("by", "?")))
+                qm = re.fullmatch(r"/api/quarantine/incidents/([^/]+)/restore-confirm", path)
+                if qm:
+                    return self._send(200, quarantine_svc.confirm_restore(
+                        qm.group(1), b.get("role"), b.get("user", b.get("by", "?")),
+                        b.get("note", "")))
+                # ---- 验证执行租约协调（独立 API）----
+                if path == "/api/leases/claims":
+                    d = lease_svc.claim(
+                        b.get("runner_id", ""), run_id=b.get("run_id"),
+                        idempotency_key=b.get("idempotency_key"),
+                        ttl_seconds=b.get("ttl_seconds"))
+                    return self._send(200 if d.get("replayed") else 201, d)
+                m = re.fullmatch(r"/api/leases/runs/(.+)/renew", path)
+                if m:
+                    return self._send(200, lease_svc.renew(
+                        m.group(1), self._gen(b), b.get("lease_token"),
+                        b.get("runner_id", ""), b.get("ttl_seconds")))
+                m = re.fullmatch(r"/api/leases/runs/(.+)/complete", path)
+                if m:
+                    d = lease_svc.complete(
+                        m.group(1), self._gen(b), b.get("lease_token"),
+                        b.get("fingerprint", ""), b.get("verdict"),
+                        b.get("result"), b.get("runner_id"))
+                    return self._send(200, d)
+                m = re.fullmatch(r"/api/leases/runs/(.+)/takeover", path)
+                if m:
+                    return self._send(201, lease_svc.takeover(
+                        m.group(1), b.get("runner_id", ""), b.get("ttl_seconds")))
+                m = re.fullmatch(r"/api/leases/runs/(.+)/release", path)
+                if m:
+                    return self._send(200, lease_svc.release(
+                        m.group(1), self._gen(b), b.get("lease_token"),
+                        b.get("runner_id", ""), b.get("note", "")))
+                self._send(404, {"error": "NOT_FOUND", "message": path})
+            except KeyError as e:
+                self._err(ECOError("BAD_REQUEST", f"缺少字段: {e}", 400))
+            except (ECOError, LeaseError) as e:
+                self._err(e)
+
+    return Handler
+
+
+def serve(db_path=":memory:", port=8080, lease_ttl_seconds=600):
+    store = Store(db_path)
+    svc = ECOService(store)
+    lease_svc = LeaseService(store, svc, ttl_seconds=lease_ttl_seconds)
+    quarantine_svc = QuarantineService(store)
+    # 进程启动：先完成事故隔离裁决，再恢复租约（隔离会使旧租约失效）
+    qrec = quarantine_svc.recover()
+    # 进程启动：恢复未过期租约，回收已过期租约（落盘租约跨重启存活）
+    rec = lease_svc.recover()
+    impact_svc = ImpactService(store)
+    httpd = ThreadingHTTPServer(
+        ("0.0.0.0", port), _make_handler(svc, lease_svc, impact_svc, quarantine_svc))
+    print(f"ECO 基线服务已启动: http://localhost:{port}  (db={db_path})")
+    print(f"事故隔离: 恢复未完成裁决 {qrec['count']} 起")
+    print(f"租约协调: 恢复未过期 {rec['restored_held']} 条，回收过期 {len(rec['recovered_expired'])} 条，"
+          f"对账 {rec['reconciled']} 条")
+    print(f"Runner 操作页: http://localhost:{port}/ops")
+    print(f"电路影响闭包操作页: http://localhost:{port}/impact")
+    print(f"事故隔离操作页: http://localhost:{port}/quarantine")
+    try:
+        httpd.serve_forever()
+    except KeyboardInterrupt:
+        pass
+
+
+if __name__ == "__main__":
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--db", default="data/eco.db")
+    ap.add_argument("--port", type=int, default=8080)
+    ap.add_argument("--lease-ttl", type=int, default=600,
+                    help="租约默认 TTL（秒），30~3600")
+    args = ap.parse_args()
+    serve(args.db, args.port, args.lease_ttl)

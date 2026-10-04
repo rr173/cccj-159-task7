@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>电路影响闭包操作页</title>
+<style>
+:root{--bg:#0f1522;--panel:#182030;--line:#2a3550;--txt:#dbe4f3;--mut:#8494b3;--ok:#2fbf71;--bad:#e0556b;--warn:#e3a73a;--accent:#4f8cff}
+*{box-sizing:border-box} body{margin:0;font:13px/1.55 -apple-system,"Segoe UI","PingFang SC",monospace;background:var(--bg);color:var(--txt)}
+header{padding:14px 22px;border-bottom:1px solid var(--line);background:#121a29;display:flex;gap:14px;align-items:center}
+h1{font-size:16px;margin:0} h2{font-size:13px;color:#9fb4da;text-transform:uppercase;letter-spacing:1px;margin:0 0 10px}
+.wrap{padding:14px 22px;display:grid;grid-template-columns:1fr 1fr;gap:14px}.panel{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:14px;margin-bottom:14px}
+input,textarea,select{background:#0d1320;color:var(--txt);border:1px solid var(--line);border-radius:4px;padding:6px 8px;font:inherit}
+input{width:240px}textarea{width:100%;min-height:130px}button{background:var(--accent);border:0;color:#fff;border-radius:5px;padding:6px 12px;cursor:pointer}
+button.sec{background:#2c3a55}button.danger{background:var(--bad)}button:disabled{background:#333d52;color:#7c88a1;cursor:not-allowed}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:7px 0}.mut{color:var(--mut)}.mono{font-family:ui-monospace,Menlo,monospace}
+.card{border:1px solid var(--line);background:#121a29;border-radius:7px;padding:10px;margin:8px 0}.chip{display:inline-block;border:1px solid var(--line);border-radius:20px;padding:1px 8px;margin:2px;font-size:11px}
+.ok{color:var(--ok)}.bad{color:var(--bad)}.warn{color:var(--warn)}table{width:100%;border-collapse:collapse;font-size:12px}td,th{border-bottom:1px solid #222d44;padding:5px;text-align:left;vertical-align:top}
+pre{white-space:pre-wrap;word-break:break-all;background:#0b111c;border:1px solid var(--line);border-radius:6px;padding:8px;max-height:360px;overflow:auto}
+#toast{position:fixed;right:18px;bottom:18px;display:flex;flex-direction:column;gap:8px}.toast{background:#20304d;border:1px solid var(--line);border-radius:7px;padding:9px 13px}.toast.err{border-color:var(--bad)}.toast.ok{border-color:var(--ok)}
+</style>
+</head>
+<body>
+<header><h1>🔌 电路影响闭包（审核前自动计算）</h1>
+  <span class="mut mono" id="topoMeta"></span><span style="flex:1"></span>
+  <a class="chip" href="/" style="color:#9fc0ff;text-decoration:none">返回 ECO 工作台</a>
+  <button class="sec" onclick="refresh()">刷新</button></header>
+<div class="wrap"><div>
+  <div class="panel"><h2>① 版本化拓扑</h2>
+    <div class="row mut">当前版本绑定实例关系、时钟域、约束引用和强制策略；拓扑更新后冻结单必须重算。</div>
+    <div id="topoSummary"></div>
+    <details><summary class="mut">查看/发布完整拓扑 JSON</summary>
+      <textarea id="topoJson" class="mono"></textarea>
+      <div class="row"><input id="topoBy" value="admin.chen" placeholder="发布人"/>
+        <input id="topoNote" placeholder="变更说明" style="flex:1"/>
+        <button onclick="publishTopology()">发布新版本</button></div></details>
+  </div>
+  <div class="panel"><h2>② 从修改起点计算闭包</h2>
+    <div class="grid2"><select id="rootSelect" multiple style="width:100%;height:130px"></select></div>
+    <div class="row mut">也可逗号输入实例 ID（如 u_alu,u_core）：<input id="roots" style="flex:1" value="u_alu"/></div>
+    <div class="row"><input id="scope" value="ad-hoc" placeholder="scope"/><input id="by" value="wei.dong" placeholder="操作人"/></div>
+    <textarea id="summary" placeholder="变更摘要 JSON">{"change":"ALU retiming","risk":"timing"}</textarea>
+    <div class="row"><button onclick="compute()">计算影响闭包</button></div>
+  </div>
+  <div class="panel"><h2>③ ECO 关联闭包</h2><div id="ecoList"></div></div>
+</div><div>
+  <div class="panel"><h2>④ 必须复验集合、检查类型与传播解释</h2><div id="snapshot"></div></div>
+  <div class="panel"><h2>⑤ 审计：自动结论 + 人工覆盖</h2><div id="audit"></div></div>
+</div></div><div id="toast"></div>
+<script src="/static/impact.js"></script>
+</body></html>

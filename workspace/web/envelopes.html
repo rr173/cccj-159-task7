@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>设计签名封装服务</title>
+<style>
+body{font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;margin:0;background:#f6f7f9;color:#17202a}
+header{background:#14253d;color:#fff;padding:18px 28px}main{padding:22px;display:grid;gap:18px;grid-template-columns:420px 1fr}
+.card{background:#fff;border:1px solid #d8dde6;border-radius:10px;padding:16px;box-shadow:0 1px 2px #0001}
+h2{margin:0 0 12px;font-size:17px}label{display:block;font-size:12px;color:#5d6978;margin:8px 0 4px}
+input,textarea,select{width:100%;box-sizing:border-box;padding:7px;border:1px solid #b9c2cf;border-radius:6px;font-family:inherit}
+textarea{min-height:70px}button{border:0;background:#246bce;color:#fff;padding:8px 12px;border-radius:6px;margin:8px 4px 0 0;cursor:pointer}
+button.secondary{background:#5d6978}.ok{color:#177245}.bad{color:#b42318}.muted{color:#6b7785;font-size:12px}
+pre{white-space:pre-wrap;word-break:break-all;background:#0f172a;color:#d7e3ea;border-radius:8px;padding:12px;max-height:420px;overflow:auto;font-size:12px}
+.row{display:grid;grid-template-columns:1fr 1fr;gap:8px}.pill{display:inline-block;background:#e9f1ff;border:1px solid #b8d2f8;border-radius:20px;padding:2px 9px;margin:2px;font-size:12px}
+table{border-collapse:collapse;width:100%;font-size:13px}td,th{border-bottom:1px solid #e4e8ee;padding:6px;text-align:left;vertical-align:top}
+</style>
+</head>
+<body>
+<header><h1>设计签名发布信封</h1><div class="muted" style="color:#b8c6d8">内容寻址 · 多方签名 · Merkle 包含证明 · 离线验真 · 原子发布</div></header>
+<main>
+<section class="card">
+<h2>① 签名者密钥</h2>
+<button onclick="keygen()">生成 Ed25519 密钥</button>
+<label>KID</label><input id="kid"><label>签名者</label><input id="signer" value="engineer.a">
+<label>角色</label><select id="role"><option>TIMING_LEAD</option><option>METHODOLOGY_LEAD</option></select>
+<label>公钥 hex</label><input id="pubkey"><label>私钥 seed hex（仅本地签名使用）</label><textarea id="privkey"></textarea>
+<button onclick="registerSigner()">登记/轮换公钥</button><button class="secondary" onclick="revoke()">撤销 KID</button>
+<h2>② 会话与内容</h2>
+<button onclick="createSession()">创建会话</button>
+<div id="sessionInfo" class="muted"></div>
+<label>槽位 slot</label><input id="slot" value="netlist/core.v">
+<label>构件类型</label><select id="kind"><option>netlist</option><option>constraints</option><option>modules</option><option>signoffs</option></select>
+<label>内容（文本或 JSON）</label><textarea id="content">MODULE core; CELL UI_DEMO; ENDMODULE</textarea>
+<button onclick="addArtifact()">加入构件</button>
+<button onclick="prepare()">内容寻址 prepare</button>
+<h2>③ 签名/封口/发布</h2>
+<div class="muted">页面用浏览器 WebCrypto Ed25519 签名；也可使用 CLI 签名。</div>
+<button onclick="browserSign()">用上方私钥签名</button>
+<button onclick="seal()">多方封口</button>
+<label>发布名</label><input id="pubname" value="release-A">
+<button onclick="publish()">原子发布</button>
+<button class="secondary" onclick="refreshAll()">刷新</button>
+</section>
+<section class="card">
+<h2>信封谱系 / 状态 / 校验</h2>
+<div id="root"></div><div id="signers"></div><div id="sessions"></div><div id="envelopes"></div>
+<h2>校验结果与审计</h2>
+<div id="result" class="muted">操作结果将显示在这里。</div>
+<pre id="output">{}</pre>
+</section>
+</main>
+<script src="/static/envelopes.js"></script>
+</body></html>

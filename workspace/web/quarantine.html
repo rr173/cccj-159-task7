@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>事故隔离操作页</title>
+<style>
+:root{--bg:#0f1522;--panel:#182030;--line:#2a3550;--txt:#dbe4f3;--mut:#8494b3;--ok:#2fbf71;--bad:#e0556b;--warn:#e3a73a;--accent:#4f8cff}
+*{box-sizing:border-box}body{margin:0;font:13px/1.55 -apple-system,"Segoe UI","PingFang SC",monospace;background:var(--bg);color:var(--txt)}
+header{padding:14px 22px;border-bottom:1px solid var(--line);background:#121a29;display:flex;gap:14px;align-items:center}
+h1{font-size:16px;margin:0}h2{font-size:13px;color:#9fb4da;text-transform:uppercase;letter-spacing:1px;margin:0 0 10px}
+.wrap{padding:14px 22px;display:grid;grid-template-columns:420px 1fr;gap:14px}.panel{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:14px;margin-bottom:14px}
+input,textarea,select{background:#0d1320;color:var(--txt);border:1px solid var(--line);border-radius:4px;padding:6px 8px;font:inherit;width:100%}
+textarea{min-height:90px}button{background:var(--accent);border:0;color:#fff;border-radius:5px;padding:6px 12px;cursor:pointer}button.sec{background:#2c3a55}button.danger{background:var(--bad)}button.ok{background:var(--ok)}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:7px 0}.field{margin:8px 0}.mut{color:var(--mut)}.mono{font-family:ui-monospace,Menlo,monospace}
+.card{border:1px solid var(--line);background:#121a29;border-radius:7px;padding:10px;margin:8px 0}.chip{display:inline-block;border:1px solid var(--line);border-radius:20px;padding:1px 8px;margin:2px;font-size:11px}
+.ok{color:var(--ok)}.bad{color:var(--bad)}.warn{color:var(--warn)}table{width:100%;border-collapse:collapse;font-size:12px}td,th{border-bottom:1px solid #222d44;padding:5px;text-align:left;vertical-align:top}
+pre{white-space:pre-wrap;word-break:break-all;background:#0b111c;border:1px solid var(--line);border-radius:6px;padding:8px;max-height:260px;overflow:auto}
+a{color:#9fc0ff;text-decoration:none}#toast{position:fixed;right:18px;bottom:18px;display:flex;flex-direction:column;gap:8px}.toast{background:#20304d;border:1px solid var(--line);border-radius:7px;padding:9px 13px}.toast.err{border-color:var(--bad)}.toast.ok{border-color:var(--ok)}
+</style>
+</head>
+<body>
+<header><h1>🚨 已发行芯片版本事故隔离</h1><span class="mut mono" id="meta"></span><span style="flex:1"></span>
+<a class="chip" href="/">ECO 工作台</a><button class="sec" onclick="load()">刷新</button></header>
+<div class="wrap"><div>
+  <div class="panel"><h2>① 质量负责人登记事故</h2>
+    <div class="field"><label>命中的已发行版本</label><select id="baseline"></select></div>
+    <div class="field"><label>故障批次</label><input id="batch" placeholder="如 LOT-20261003-A"/></div>
+    <div class="field"><label>故障原因</label><textarea id="reason" placeholder="根因、影响和处置说明"></textarea></div>
+    <div class="field"><label>证据（字符串/URL 数组，或对象数组 JSON）</label><textarea id="evidence">[{"type":"ticket","ref":"FA-001"}]</textarea></div>
+    <div class="row"><input id="by" value="quality.zhang" style="flex:1" placeholder="质量负责人"/><input id="incidentId" placeholder="可选事故编号"/></div>
+    <div class="row"><button class="danger" onclick="register()">原子隔离</button>
+      <button class="sec" onclick="recover()">恢复中断裁决</button></div>
+  </div>
+  <div class="panel"><h2>② 当前可信祖先</h2><div id="trusted"></div></div>
+  <div class="panel"><h2>③ 待处理变更</h2><div id="changes"></div></div>
+</div><div>
+  <div class="panel"><h2>④ 受影响谱系与信任代次</h2><div id="lineage"></div></div>
+  <div class="panel"><h2>⑤ 隔离事故 / 双角色恢复</h2><div id="incidents"></div></div>
+  <div class="panel"><h2>⑥ 隔离审计（落盘日志）</h2><div id="audit"></div></div>
+</div></div><div id="toast"></div>
+<script src="/static/quarantine.js"></script>
+</body></html>
